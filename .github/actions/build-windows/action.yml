@@ -10,12 +10,60 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install dependencies
+    - name: Set up MSVC
+      uses: ilammy/msvc-dev-cmd@v1.13.0
+
+    - name: Verify dependencies
       shell: pwsh
-      run: choco install openssl cmake -y
+      run: |
+        cmake --version
+        ninja --version
+        openssl version
+
+        $openssl = Get-Command openssl -ErrorAction Stop
+        $opensslBinRoot = Split-Path (Split-Path $openssl.Source -Parent) -Parent
+        $opensslRoot = @(
+          $opensslBinRoot,
+          'C:/Program Files/OpenSSL',
+          'C:/Program Files/OpenSSL-Win64'
+        ) | Where-Object {
+          $libcrypto = @(
+            "$_/lib/libcrypto.lib",
+            "$_/lib/VC/x64/MD/libcrypto.lib"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          $libssl = @(
+            "$_/lib/libssl.lib",
+            "$_/lib/VC/x64/MD/libssl.lib"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+          (Test-Path "$_/include/openssl/ssl.h") -and
+          $libcrypto -and
+          $libssl
+        } | Select-Object -First 1
+
+        if (-not $opensslRoot) {
+          Write-Error 'Could not find OpenSSL headers and import libraries'
+          exit 1
+        }
+
+        $opensslCryptoLibrary = @(
+          "$opensslRoot/lib/libcrypto.lib",
+          "$opensslRoot/lib/VC/x64/MD/libcrypto.lib"
+        ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+        $opensslSslLibrary = @(
+          "$opensslRoot/lib/libssl.lib",
+          "$opensslRoot/lib/VC/x64/MD/libssl.lib"
+        ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+        "OPENSSL_ROOT_DIR=$opensslRoot" >> $env:GITHUB_ENV
+        "OPENSSL_CRYPTO_LIBRARY=$opensslCryptoLibrary" >> $env:GITHUB_ENV
+        "OPENSSL_SSL_LIBRARY=$opensslSslLibrary" >> $env:GITHUB_ENV
+        Write-Host "OpenSSL root: $opensslRoot"
+        Write-Host "OpenSSL crypto library: $opensslCryptoLibrary"
+        Write-Host "OpenSSL ssl library: $opensslSslLibrary"
 
     - name: Checkout libssh2
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         repository: libssh2/libssh2
         ref: refs/tags/libssh2-${{ inputs.libssh2_version }}
@@ -25,15 +73,13 @@ runs:
       shell: pwsh
       run: |
         cd libssh2
-        mkdir build
-        cd build
-        cmake -DCRYPTO_BACKEND=OpenSSL -DCMAKE_INSTALL_PREFIX=D:/libssh2/install ..
-        cmake --build . --config Release --target install
+        cmake -S . -B build -G Ninja -DCRYPTO_BACKEND=OpenSSL -DOPENSSL_ROOT_DIR="$env:OPENSSL_ROOT_DIR" -DOPENSSL_CRYPTO_LIBRARY="$env:OPENSSL_CRYPTO_LIBRARY" -DOPENSSL_SSL_LIBRARY="$env:OPENSSL_SSL_LIBRARY" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=D:/libssh2/install
+        cmake --build build --parallel --target install
         mkdir -p D:/export
         copy D:/libssh2/install/bin/libssh2.dll D:/export/libssh2.dll
 
     - name: Checkout libgit2
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         repository: libgit2/libgit2
         ref: refs/tags/v${{ inputs.libgit2_version }}
@@ -43,18 +89,16 @@ runs:
       shell: pwsh
       run: |
         cd libgit2
-        mkdir build
-        cd build
-        cmake -DUSE_SSH=libssh2 -DBUILD_TESTS=ON -DEXPERIMENTAL_SHA256=ON -DCMAKE_INSTALL_PREFIX=D:/libgit2/install -DLIBSSH2_INCLUDE_DIR=D:/libssh2/install/include -DLIBSSH2_LIBRARY=D:/libssh2/install/lib/libssh2.lib ..
-        cmake --build . --config Release --target install
-        .\Release\libgit2_tests.exe
+        cmake -S . -B build -G Ninja -DUSE_SSH=libssh2 -DBUILD_TESTS=ON -DEXPERIMENTAL_SHA256=ON -DOPENSSL_ROOT_DIR="$env:OPENSSL_ROOT_DIR" -DOPENSSL_CRYPTO_LIBRARY="$env:OPENSSL_CRYPTO_LIBRARY" -DOPENSSL_SSL_LIBRARY="$env:OPENSSL_SSL_LIBRARY" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=D:/libgit2/install -DLIBSSH2_INCLUDE_DIR=D:/libssh2/install/include -DLIBSSH2_LIBRARY=D:/libssh2/install/lib/libssh2.lib
+        cmake --build build --parallel --target install
+        .\build\libgit2_tests.exe
 
     - name: Export git2 library
       shell: pwsh
       run: copy D:/libgit2/install/bin/git2-experimental.dll D:/export/libgit2.dll
 
     - name: Cache git2 library
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: cache-windows
         path: D:/export/**
