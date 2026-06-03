@@ -105,23 +105,23 @@ jobs:
           mkdir -p "$output_dir"
 
           xcodebuild -create-xcframework \
-            -library "$slices_dir/iphoneos-arm64/openssl/lib/libcrypto.a" -headers "$slices_dir/iphoneos-arm64/openssl/include" \
-            -library "$simulator_dir/openssl/lib/libcrypto.a" -headers "$simulator_dir/openssl/include" \
+            -library "$slices_dir/iphoneos-arm64/openssl/lib/libcrypto.a" \
+            -library "$simulator_dir/openssl/lib/libcrypto.a" \
             -output "$output_dir/libcrypto.xcframework"
 
           xcodebuild -create-xcframework \
-            -library "$slices_dir/iphoneos-arm64/openssl/lib/libssl.a" -headers "$slices_dir/iphoneos-arm64/openssl/include" \
-            -library "$simulator_dir/openssl/lib/libssl.a" -headers "$simulator_dir/openssl/include" \
+            -library "$slices_dir/iphoneos-arm64/openssl/lib/libssl.a" \
+            -library "$simulator_dir/openssl/lib/libssl.a" \
             -output "$output_dir/libssl.xcframework"
 
           xcodebuild -create-xcframework \
-            -library "$slices_dir/iphoneos-arm64/libssh2/lib/libssh2.a" -headers "$slices_dir/iphoneos-arm64/libssh2/include" \
-            -library "$simulator_dir/libssh2/lib/libssh2.a" -headers "$simulator_dir/libssh2/include" \
+            -library "$slices_dir/iphoneos-arm64/libssh2/lib/libssh2.a" \
+            -library "$simulator_dir/libssh2/lib/libssh2.a" \
             -output "$output_dir/libssh2.xcframework"
 
           xcodebuild -create-xcframework \
-            -library "$slices_dir/iphoneos-arm64/libgit2/lib/libgit2.a" -headers "$slices_dir/iphoneos-arm64/libgit2/include" \
-            -library "$simulator_dir/libgit2/lib/libgit2.a" -headers "$simulator_dir/libgit2/include" \
+            -library "$slices_dir/iphoneos-arm64/libgit2/lib/libgit2.a" \
+            -library "$simulator_dir/libgit2/lib/libgit2.a" \
             -output "$output_dir/libgit2.xcframework"
 
       - name: Upload iOS XCFrameworks
@@ -573,6 +573,26 @@ jobs:
         with:
           path: ./android/src/main/jniLibs/armeabi-v7a
           name: cache-android-armeabi-v7a
+
+      - name: Check expanded package size
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          max_bytes=$((100 * 1024 * 1024))
+          package_bytes="$(
+            find \
+              android assets integration_test ios lib linux macos test test_driver windows \
+              CHANGELOG.md LICENSE README.md analysis_options.yaml ffigen.yaml pubspec.yaml \
+              -type f -printf '%s\n' |
+              awk '{ total += $1 } END { print total + 0 }'
+          )"
+
+          printf 'Expanded publish payload: %s bytes\n' "$package_bytes"
+          if [ "$package_bytes" -gt "$max_bytes" ]; then
+            echo "::error::Expanded publish payload exceeds ${max_bytes} bytes"
+            exit 1
+          fi
 
       - name: Zip package into cache
         if: ${{ github.event_name == 'pull_request' }}
