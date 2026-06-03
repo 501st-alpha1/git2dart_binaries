@@ -318,6 +318,14 @@ jobs:
             --simulator \
             --debug \
             --target=integration_test/opts_bindings_integration_test.dart
+          app_bundle="$test_app/build/ios/iphonesimulator/Runner.app"
+          if [ ! -d "$app_bundle" ]; then
+            echo "::error::Built iOS simulator app was not found at $app_bundle"
+            find "$test_app/build/ios" -maxdepth 3 -type d -name '*.app' -print || true
+            exit 1
+          fi
+          du -sh "$app_bundle"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_bundle/Info.plist"
           timestamp "Finished flutter build ios --simulator"
 
       - name: Run iOS integration tests
@@ -354,13 +362,20 @@ jobs:
             ' "$seconds" "$@"
           }
 
-          timestamp "Starting flutter drive --no-build"
+          app_bundle="$test_app/build/ios/iphonesimulator/Runner.app"
+          if [ ! -d "$app_bundle" ]; then
+            echo "::error::Built iOS simulator app was not found at $app_bundle"
+            find "$test_app/build/ios" -maxdepth 3 -type d -name '*.app' -print || true
+            exit 1
+          fi
+
+          timestamp "Starting flutter drive with prebuilt app"
           run_with_timeout 600 flutter drive \
             -d "$device_id" \
-            --no-build \
+            --use-application-binary="$app_bundle" \
             --driver=test_driver/integration_test.dart \
             --target=integration_test/opts_bindings_integration_test.dart
-          timestamp "Finished flutter drive --no-build"
+          timestamp "Finished flutter drive with prebuilt app"
 
   run_android_tests:
     needs: [generate_bindings, build_libgit2_android]
