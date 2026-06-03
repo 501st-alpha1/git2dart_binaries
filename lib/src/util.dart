@@ -78,6 +78,7 @@ void _loadPlatformDependencies(String packageRoot) {
     if (Platform.isLinux) {
       DynamicLibrary.open(p.join(packageRoot, 'linux', 'libssh2.so'));
     } else if (Platform.isMacOS) {
+      DynamicLibrary.open(p.join(packageRoot, 'macos', 'libcrypto.3.dylib'));
       DynamicLibrary.open(p.join(packageRoot, 'macos', 'libssh2.1.dylib'));
     } else if (Platform.isWindows) {
       DynamicLibrary.open(p.join(packageRoot, 'windows', 'libssh2.dll'));

@@ -1,3 +1,11 @@
+## [1.11.1] - 2026-06-03
+### Fixed
+- macOS: bundle `libcrypto.3.dylib` with the generated macOS artifacts, rewrite
+  `libssh2.1.dylib` to load it via `@rpath`, and declare it in the podspec so
+  CocoaPods embeds and signs it with consumer apps.
+- macOS: load bundled `libcrypto.3.dylib` before `libssh2.1.dylib` when using
+  the package-root fallback path.
+
 ## [1.11.0] - 2026-05-30
 ### Added
 - Added iOS package support with generated XCFramework artifacts and CI integration tests.
