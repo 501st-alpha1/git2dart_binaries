@@ -12,52 +12,33 @@ void main() {
   test(
     'macOS dylibs are self-contained and loadable',
     () async {
-      final File libgit2 = File('macos/libgit2.dylib').absolute;
-      final File libssh2 = File('macos/libssh2.1.dylib').absolute;
-      final File libcrypto = File('macos/libcrypto.3.dylib').absolute;
+      final libgit2 = File('macos/libgit2.dylib').absolute;
 
-      for (final File dylib in <File>[libgit2, libssh2, libcrypto]) {
-        expect(
-          dylib.existsSync(),
-          isTrue,
-          reason: '${dylib.path} must be present in macOS artifacts',
-        );
-      }
+      expect(
+        await libgit2.exists(),
+        isTrue,
+        reason: '${libgit2.path} must be present in macOS artifacts',
+      );
 
       await _expectDylibId(libgit2, '@rpath/libgit2.dylib');
-      await _expectDylibId(libssh2, '@rpath/libssh2.1.dylib');
-      await _expectDylibId(libcrypto, '@rpath/libcrypto.3.dylib');
 
-      final String libgit2Deps = await _otool(<String>['-L', libgit2.path]);
-      final String libssh2Deps = await _otool(<String>['-L', libssh2.path]);
-      final String libcryptoDeps = await _otool(<String>['-L', libcrypto.path]);
+      final libgit2Deps = await _otool(<String>['-L', libgit2.path]);
 
-      expect(libgit2Deps, contains('@rpath/libssh2.1.dylib'));
-      expect(libssh2Deps, contains('@rpath/libcrypto.3.dylib'));
+      expect(libgit2Deps, isNot(contains('libssh2')));
+      expect(libgit2Deps, isNot(contains('libcrypto')));
+      expect(libgit2Deps, isNot(contains('libssl')));
 
       _expectNoHomebrewReferences(libgit2Deps);
-      _expectNoHomebrewReferences(libssh2Deps);
-      _expectNoHomebrewReferences(libcryptoDeps);
 
-      final ffi.DynamicLibrary openedLibcrypto = ffi.DynamicLibrary.open(
-        libcrypto.path,
-      );
-      final ffi.DynamicLibrary openedLibssh2 = ffi.DynamicLibrary.open(
-        libssh2.path,
-      );
-      final ffi.DynamicLibrary openedLibgit2 = ffi.DynamicLibrary.open(
-        libgit2.path,
-      );
+      final openedLibgit2 = ffi.DynamicLibrary.open(libgit2.path);
 
-      expect(openedLibcrypto, isA<ffi.DynamicLibrary>());
-      expect(openedLibssh2, isA<ffi.DynamicLibrary>());
       expect(openedLibgit2, isA<ffi.DynamicLibrary>());
 
-      final _GitLibgit2Init init = openedLibgit2
+      final init = openedLibgit2
           .lookupFunction<_GitLibgit2InitNative, _GitLibgit2Init>(
             'git_libgit2_init',
           );
-      final _GitLibgit2Shutdown shutdown = openedLibgit2
+      final shutdown = openedLibgit2
           .lookupFunction<_GitLibgit2ShutdownNative, _GitLibgit2Shutdown>(
             'git_libgit2_shutdown',
           );
@@ -67,11 +48,71 @@ void main() {
     },
     skip: Platform.isMacOS ? null : 'macOS packaging test',
   );
+
+  test(
+    'macOS package-root loader works in a plain Dart process',
+    () async {
+      final packageConfig = File('.dart_tool/package_config.json').absolute;
+      expect(
+        await packageConfig.exists(),
+        isTrue,
+        reason: '${packageConfig.path} must exist after pub get',
+      );
+
+      final tempDir = await Directory.systemTemp.createTemp(
+        'git2dart_binaries_plain_dart_',
+      );
+      try {
+        final script = File('${tempDir.path}/load_git2dart_binaries.dart');
+        await script.writeAsString(r'''
+import 'dart:io';
+
+import 'package:git2dart_binaries/src/util.dart' as git2;
+
+void main() {
+  final initCount = git2.libgit2.git_libgit2_init();
+  if (initCount < 1) {
+    stderr.writeln('git_libgit2_init returned $initCount');
+    exit(1);
+  }
+
+  git2.libgit2.git_libgit2_shutdown();
+  git2.libgit2.git_libgit2_shutdown();
+  stdout.writeln('plain-dart-libgit2-ok');
+}
+''');
+
+        final result = await Process.run(
+          _dartExecutable(),
+          <String>['--packages=${packageConfig.path}', script.path],
+          workingDirectory: Directory.current.path,
+        ).timeout(const Duration(seconds: 30));
+
+        expect(
+          result.exitCode,
+          0,
+          reason:
+              'plain Dart loader process failed or crashed.\n'
+              'stdout:\n${result.stdout}\n'
+              'stderr:\n${result.stderr}',
+        );
+        expect(result.stdout, contains('plain-dart-libgit2-ok'));
+      } finally {
+        await tempDir.delete(recursive: true);
+      }
+    },
+    skip: Platform.isMacOS ? null : 'macOS plain Dart loader regression test',
+  );
 }
 
 Future<void> _expectDylibId(File dylib, String expectedId) async {
-  final String output = await _otool(<String>['-D', dylib.path]);
+  final output = await _otool(<String>['-D', dylib.path]);
   expect(output, contains(expectedId));
+}
+
+String _dartExecutable() {
+  final executable = File(Platform.resolvedExecutable).uri.pathSegments.last;
+  return executable == 'dart' ? Platform.resolvedExecutable : 'dart';
 }
 
 void _expectNoHomebrewReferences(String otoolOutput) {
@@ -80,8 +121,8 @@ void _expectNoHomebrewReferences(String otoolOutput) {
 }
 
 Future<String> _otool(List<String> arguments) async {
-  final ProcessResult result = await Process.run('otool', arguments);
-  final String output = '${result.stdout}${result.stderr}';
+  final result = await Process.run('otool', arguments);
+  final output = '${result.stdout}${result.stderr}';
 
   if (result.exitCode != 0) {
     fail('otool ${arguments.join(' ')} failed:\n$output');

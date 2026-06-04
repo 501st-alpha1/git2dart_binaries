@@ -1,5 +1,5 @@
 name: Build libgit2 macOS
-description: Build libgit2 and libssh2 on macOS with OpenSSL
+description: Build libgit2 with static libssh2 and OpenSSL on macOS
 inputs:
   libgit2_version:
     description: Version of libgit2 to build
@@ -7,12 +7,18 @@ inputs:
   libssh2_version:
     description: Version of libssh2 to build
     required: true
+  openssl_version:
+    description: Version of OpenSSL to build
+    required: true
 runs:
   using: composite
   steps:
-    # - name: Install dependencies
-    #   shell: bash
-    #   run: brew install openssl cmake
+    - name: Checkout OpenSSL
+      uses: actions/checkout@v6
+      with:
+        repository: openssl/openssl
+        ref: refs/tags/openssl-${{ inputs.openssl_version }}
+        path: ./openssl
 
     - name: Checkout libssh2
       uses: actions/checkout@v6
@@ -21,19 +27,6 @@ runs:
         ref: refs/tags/libssh2-${{ inputs.libssh2_version }}
         path: ./libssh2
 
-    - name: Build libssh2
-      shell: bash
-      run: |
-        set -euo pipefail
-        cd libssh2
-        mkdir -p build && cd build
-        cmake -DCRYPTO_BACKEND=OpenSSL \
-              -DCMAKE_INSTALL_PREFIX=/tmp/libssh2/install \
-              -DCMAKE_INSTALL_NAME_DIR="@rpath" \
-              -DCMAKE_INSTALL_RPATH="@loader_path" \
-              ..
-        cmake --build . --target install
-
     - name: Checkout libgit2
       uses: actions/checkout@v6
       with:
@@ -41,24 +34,71 @@ runs:
         ref: refs/tags/v${{ inputs.libgit2_version }}
         path: ./libgit2
 
-    - name: Uninstall brew libssh2
-      shell: bash
-      run: brew uninstall --ignore-dependencies libssh2
-
     - name: Build libgit2
       shell: bash
       run: |
-        cd libgit2
-        mkdir -p build && cd build
-        cmake -DUSE_SSH=libssh2 \
-              -DBUILD_TESTS=ON \
-              -DEXPERIMENTAL_SHA256=ON \
-              -DLIBSSH2_INCLUDE_DIR=/tmp/libssh2/install/include \
-              -DLIBSSH2_LIBRARY=/tmp/libssh2/install/lib/libssh2.dylib \
-              -DCMAKE_INSTALL_PREFIX=/tmp/libgit2/install \
-              ..
-        cmake --build . --target install
-        ./libgit2_tests
+        set -euo pipefail
+
+        build_root="/tmp/git2dart-macos"
+        openssl_install="$build_root/openssl"
+        libssh2_install="$build_root/libssh2"
+        libgit2_install="$build_root/libgit2"
+
+        rm -rf "$build_root"
+        mkdir -p "$build_root"
+
+        case "$(uname -m)" in
+          arm64) openssl_target="darwin64-arm64-cc" ;;
+          x86_64) openssl_target="darwin64-x86_64-cc" ;;
+          *)
+            echo "::error::Unsupported macOS architecture: $(uname -m)"
+            exit 1
+            ;;
+        esac
+
+        cp -R ./openssl "$build_root/openssl-src"
+        pushd "$build_root/openssl-src"
+        ./Configure "$openssl_target" \
+          no-shared \
+          no-tests \
+          --prefix="$openssl_install"
+        make clean || true
+        make -j"$(sysctl -n hw.ncpu)" build_libs
+        make install_dev
+        popd
+
+        cmake -S ./libssh2 -B "$build_root/libssh2-bld" \
+          -DBUILD_SHARED_LIBS=OFF \
+          -DBUILD_EXAMPLES=OFF \
+          -DBUILD_TESTING=OFF \
+          -DBUILD_TESTS=OFF \
+          -DCRYPTO_BACKEND=OpenSSL \
+          -DOPENSSL_ROOT_DIR="$openssl_install" \
+          -DOPENSSL_INCLUDE_DIR="$openssl_install/include" \
+          -DOPENSSL_SSL_LIBRARY="$openssl_install/lib/libssl.a" \
+          -DOPENSSL_CRYPTO_LIBRARY="$openssl_install/lib/libcrypto.a" \
+          -DCMAKE_INSTALL_PREFIX="$libssh2_install"
+        cmake --build "$build_root/libssh2-bld" --target install -- -j"$(sysctl -n hw.ncpu)"
+
+        PKG_CONFIG_PATH="$libssh2_install/lib/pkgconfig" \
+        cmake -S ./libgit2 -B "$build_root/libgit2-bld" \
+          -DBUILD_TESTS=ON \
+          -DUSE_SSH=libssh2 \
+          -DUSE_HTTPS=OpenSSL \
+          -DEXPERIMENTAL_SHA256=ON \
+          -DLIBSSH2_INCLUDE_DIR="$libssh2_install/include" \
+          -DLIBSSH2_LIBRARY="$libssh2_install/lib/libssh2.a" \
+          -DOPENSSL_ROOT_DIR="$openssl_install" \
+          -DOPENSSL_INCLUDE_DIR="$openssl_install/include" \
+          -DOPENSSL_SSL_LIBRARY="$openssl_install/lib/libssl.a" \
+          -DOPENSSL_CRYPTO_LIBRARY="$openssl_install/lib/libcrypto.a" \
+          -DCMAKE_LIBRARY_PATH="$libssh2_install/lib;$openssl_install/lib" \
+          -DCMAKE_FIND_ROOT_PATH="$libssh2_install;$openssl_install" \
+          -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH \
+          -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH \
+          -DCMAKE_INSTALL_PREFIX="$libgit2_install"
+        cmake --build "$build_root/libgit2-bld" --target install -- -j"$(sysctl -n hw.ncpu)"
+        "$build_root/libgit2-bld/libgit2_tests"
 
     - name: Export git2 library
       shell: bash
@@ -66,56 +106,16 @@ runs:
         set -euo pipefail
 
         mkdir -p export
-        # Export under a stable file name and make the dylib's own install_name
-        # match it. The libgit2 version itself is controlled by LIBGIT2_VERSION
-        # in the workflow, not by platform file names.
-        cp /tmp/libgit2/install/lib/libgit2-experimental.dylib export/libgit2.dylib
+        cp /tmp/git2dart-macos/libgit2/lib/libgit2-experimental.dylib export/libgit2.dylib
         install_name_tool -id @rpath/libgit2.dylib export/libgit2.dylib
 
-        cp /tmp/libssh2/install/lib/libssh2.dylib export/libssh2.1.dylib
-        install_name_tool -id @rpath/libssh2.1.dylib export/libssh2.1.dylib
-
-        libssh2_path="$(
-          otool -L export/libgit2.dylib |
-            awk '/libssh2.*\.dylib/ { print $1; exit }'
-        )"
-        if [ -n "$libssh2_path" ] && [ "$libssh2_path" != "@rpath/libssh2.1.dylib" ]; then
-          install_name_tool \
-            -change "$libssh2_path" @rpath/libssh2.1.dylib \
-            export/libgit2.dylib
-        fi
-
-        libcrypto_path="$(
-          otool -L export/libgit2.dylib export/libssh2.1.dylib |
-            awk '/libcrypto\.3\.dylib/ && $1 ~ /^\// { print $1; exit }'
-        )"
-
-        if [ -z "$libcrypto_path" ]; then
-          echo "::error::Could not find the source path for libcrypto.3.dylib"
-          otool -L export/libgit2.dylib
-          otool -L export/libssh2.1.dylib
-          exit 1
-        fi
-
-        cp "$libcrypto_path" export/libcrypto.3.dylib
-        install_name_tool -id @rpath/libcrypto.3.dylib export/libcrypto.3.dylib
-
-        for dylib in export/libgit2.dylib export/libssh2.1.dylib; do
-          if otool -L "$dylib" | awk '{ print $1 }' | grep -Fqx "$libcrypto_path"; then
-            install_name_tool \
-              -change "$libcrypto_path" @rpath/libcrypto.3.dylib \
-              "$dylib"
-          fi
-        done
-
-        if otool -L export/*.dylib | grep -E '/(opt/homebrew|usr/local)/'; then
+        if otool -L export/libgit2.dylib | grep -E '/(opt/homebrew|usr/local)/|libssh2|libcrypto|libssl'; then
           echo "::error::Exported macOS dylibs must not reference Homebrew paths"
+          echo "::error::libssh2 and OpenSSL must be statically linked into libgit2.dylib"
           exit 1
         fi
 
         otool -L export/libgit2.dylib
-        otool -L export/libssh2.1.dylib
-        otool -L export/libcrypto.3.dylib
 
     - name: Cache git2 library
       uses: actions/upload-artifact@v7

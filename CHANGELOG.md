@@ -1,3 +1,9 @@
+## [1.11.2] - 2026-06-04
+### Fixed
+- macOS: build the release `libgit2.dylib` with libssh2 and OpenSSL linked
+  statically, removing the separate `libcrypto.3.dylib` runtime dependency that
+  could crash plain Dart and Flutter test processes.
+
 ## [1.11.1] - 2026-06-03
 ### Fixed
 - macOS: bundle `libcrypto.3.dylib` with the generated macOS artifacts, rewrite
