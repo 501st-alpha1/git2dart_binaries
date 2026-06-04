@@ -3,7 +3,8 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 
-import 'package:git2dart_binaries/git2dart_binaries.dart';
+import 'package:git2dart_binaries/src/bindings.dart';
+import 'package:git2dart_binaries/src/opts_bindings.dart';
 import 'package:path/path.dart' as p;
 
 final _library = _loadLibrary();
