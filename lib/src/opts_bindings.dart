@@ -227,6 +227,38 @@ class Libgit2Opts {
     );
   }
 
+  /// Gets the current user's home directory, as it will be used for file
+  /// lookups (e.g. SSH `known_hosts` resolution).
+  ///
+  /// The path is written to the [out] buffer.
+  ///
+  /// Returns 0 on success, or a negative error code.
+  int git_libgit2_opts_get_homedir(ffi.Pointer<git_buf> out) {
+    return _git_libgit2_opts_get_buf(
+      git_libgit2_opt_t.GIT_OPT_GET_HOMEDIR.value,
+      out,
+    );
+  }
+
+  /// Overrides libgit2's notion of the current user's home directory, used
+  /// for file lookups (e.g. SSH `known_hosts` resolution).
+  ///
+  /// Unlike setting the `HOME` environment variable, this writes directly
+  /// into libgit2's own cached home-directory state, so it takes effect
+  /// immediately regardless of when `git_libgit2_init()` ran. This is
+  /// particularly useful on platforms (such as Android) where there is no
+  /// usable `HOME` environment variable to begin with.
+  ///
+  /// The [path] parameter specifies the new home directory.
+  ///
+  /// Returns 0 on success, or a negative error code.
+  int git_libgit2_opts_set_homedir(ffi.Pointer<ffi.Char> path) {
+    return _git_libgit2_opts_set_char(
+      git_libgit2_opt_t.GIT_OPT_SET_HOMEDIR.value,
+      path,
+    );
+  }
+
   /// Sets the SSL certificate-authority locations.
   ///
   /// The [file] parameter is the location of a file containing several
