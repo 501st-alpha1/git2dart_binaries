@@ -54,9 +54,20 @@ jobs:
           path: /tmp/android-out
           merge-multiple: false
 
+      - name: Flatten into per-ABI folders
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/android-flat
+          for abi_dir in /tmp/android-out/cache-android-*/; do
+            abi=$(basename "$abi_dir" | sed 's/^cache-android-//')
+            mkdir -p "/tmp/android-flat/$abi"
+            cp "$abi_dir"* "/tmp/android-flat/$abi/"
+          done
+
       - name: Upload combined artifact
         uses: actions/upload-artifact@v7
         with:
-          name: android-libgit2-main
-          path: /tmp/android-out/**
+          name: android-libgit2-custom
+          path: /tmp/android-flat/**
           retention-days: 14
