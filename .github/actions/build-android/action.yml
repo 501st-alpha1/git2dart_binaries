@@ -1,6 +1,10 @@
 name: Build libgit2 Android OpenSSL
 description: Build libgit2 with OpenSSL for Android
 inputs:
+  libgit2_repository:
+    description: GitHub repository to check out for libgit2 (owner/repo). Defaults to libgit2/libgit2.
+    required: false
+    default: "libgit2/libgit2"
   libgit2_ref:
     description: Git ref (branch, tag, or SHA) to check out for libgit2. Takes precedence over libgit2_version when set.
     required: false
@@ -166,7 +170,7 @@ runs:
     - name: Checkout libgit2
       uses: actions/checkout@v6
       with:
-        repository: libgit2/libgit2
+        repository: ${{ inputs.libgit2_repository }}
         ref: ${{ inputs.libgit2_ref != '' && inputs.libgit2_ref || format('refs/tags/v{0}', inputs.libgit2_version) }}
         path: ./libgit2
 

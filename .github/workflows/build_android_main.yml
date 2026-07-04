@@ -1,20 +1,24 @@
-name: Build Android libgit2 (main branch)
+name: Build Android libgit2 (custom ref)
 
 # Manually triggered from the Actions tab on your fork.
-# Downloads the resulting .so files as a single artifact: android-libgit2-main.
+# Downloads the resulting .so files as artifact: android-libgit2-custom.
 on:
   workflow_dispatch:
     inputs:
+      libgit2_repository:
+        description: "libgit2 GitHub repository (owner/repo)"
+        required: false
+        default: "libgit2/libgit2"
       libgit2_ref:
-        description: libgit2 git ref to build (branch, tag, or SHA)
+        description: "libgit2 git ref (branch, tag, or SHA)"
         required: false
         default: "main"
       libssh2_version:
-        description: libssh2 version tag to build against
+        description: "libssh2 version tag"
         required: false
         default: "1.11.1"
       openssl_version:
-        description: OpenSSL version tag to build against
+        description: "OpenSSL version tag"
         required: false
         default: "3.0.15"
 
@@ -33,6 +37,7 @@ jobs:
         uses: ./.github/actions/build-android
         with:
           architecture: ${{ matrix.architecture }}
+          libgit2_repository: ${{ inputs.libgit2_repository }}
           libgit2_ref: ${{ inputs.libgit2_ref }}
           libgit2_version: "0.0.0"   # satisfies required: true; overridden by libgit2_ref
           libssh2_version: ${{ inputs.libssh2_version }}
