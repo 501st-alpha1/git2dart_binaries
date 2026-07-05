@@ -1,9 +1,9 @@
 name: Build Android libgit2 (custom ref)
 
 # Manually triggered from the Actions tab on your fork.
-# Builds libgit2.so for all Android ABIs, then commits the results back to
-# the branch this workflow was triggered from, so the repo can be used as a
-# git: dependency override without any manual file copying.
+# Builds libgit2.so (and its dependencies: libssh2.so, libssl.so, libcrypto.so)
+# for all Android ABIs, then commits all .so files back to the branch this
+# workflow was triggered from.
 on:
   workflow_dispatch:
     inputs:
@@ -63,7 +63,7 @@ jobs:
           path: /tmp/android-out
           merge-multiple: false
 
-      - name: Copy .so files into jniLibs
+      - name: Copy all .so files into jniLibs
         shell: bash
         run: |
           set -euo pipefail
@@ -71,8 +71,9 @@ jobs:
             abi=$(basename "$abi_dir" | sed 's/^cache-android-//')
             dest="android/src/main/jniLibs/$abi"
             mkdir -p "$dest"
-            cp "$abi_dir"libgit2.so "$dest/libgit2.so"
-            echo "Copied $abi/libgit2.so"
+            cp "$abi_dir"*.so "$dest/"
+            echo "Copied $(ls "$abi_dir"*.so | wc -l) .so files for $abi:"
+            ls "$abi_dir"*.so | xargs -n1 basename
           done
 
       - name: Commit and push updated .so files
