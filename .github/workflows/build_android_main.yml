@@ -1,7 +1,9 @@
 name: Build Android libgit2 (custom ref)
 
 # Manually triggered from the Actions tab on your fork.
-# Downloads the resulting .so files as artifact: android-libgit2-custom.
+# Builds libgit2.so for all Android ABIs, then commits the results back to
+# the branch this workflow was triggered from, so the repo can be used as a
+# git: dependency override without any manual file copying.
 on:
   workflow_dispatch:
     inputs:
@@ -31,7 +33,7 @@ jobs:
         architecture: [arm64-v8a, armeabi-v7a, x86_64, x86]
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Build Android ${{ matrix.architecture }}
         uses: ./.github/actions/build-android
@@ -46,28 +48,53 @@ jobs:
   collect_artifacts:
     needs: [build_android]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
       - name: Download all Android artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           pattern: cache-android-*
           path: /tmp/android-out
           merge-multiple: false
 
-      - name: Flatten into per-ABI folders
+      - name: Copy .so files into jniLibs
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/android-flat
           for abi_dir in /tmp/android-out/cache-android-*/; do
             abi=$(basename "$abi_dir" | sed 's/^cache-android-//')
-            mkdir -p "/tmp/android-flat/$abi"
-            cp "$abi_dir"* "/tmp/android-flat/$abi/"
+            dest="android/src/main/jniLibs/$abi"
+            mkdir -p "$dest"
+            cp "$abi_dir"libgit2.so "$dest/libgit2.so"
+            echo "Copied $abi/libgit2.so"
           done
 
+      - name: Commit and push updated .so files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add android/src/main/jniLibs/
+          if git diff --cached --quiet; then
+            echo "No changes to commit (binaries are identical to what's already on the branch)."
+          else
+            git commit -m "chore: update Android libgit2.so binaries
+
+  Built from ${{ inputs.libgit2_repository }}@${{ inputs.libgit2_ref }}
+  libssh2 ${{ inputs.libssh2_version }}, OpenSSL ${{ inputs.openssl_version }}"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+
       - name: Upload combined artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: android-libgit2-custom
-          path: /tmp/android-flat/**
+          path: android/src/main/jniLibs/**
           retention-days: 14
