@@ -85,10 +85,10 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to commit (binaries are identical to what's already on the branch)."
           else
-            git commit -m "chore: update Android libgit2.so binaries
-
-  Built from ${{ inputs.libgit2_repository }}@${{ inputs.libgit2_ref }}
-  libssh2 ${{ inputs.libssh2_version }}, OpenSSL ${{ inputs.openssl_version }}"
+            git commit \
+              -m "chore: update Android libgit2.so binaries" \
+              -m "Built from ${{ inputs.libgit2_repository }}@${{ inputs.libgit2_ref }}" \
+              -m "libssh2 ${{ inputs.libssh2_version }}, OpenSSL ${{ inputs.openssl_version }}"
             git push origin HEAD:${{ github.ref_name }}
           fi
 
